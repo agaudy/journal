@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mon Journal</title>
+<meta name="theme-color" content="#b5562f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#f6f2eb;--panel:#fffdf9;--ink:#2b2622;--muted:#8a8178;--line:#e6dfd4;--accent:#b5562f;--hover:#f0ebe2;--now:#d9472b;--shadow:0 12px 40px rgba(40,30,20,.18)}
+@media (prefers-color-scheme:dark){:root{--bg:#1c1a18;--panel:#252220;--ink:#ece6dd;--muted:#9a9187;--line:#3a3530;--accent:#e07a50;--hover:#2f2b27;--shadow:0 12px 40px rgba(0,0,0,.5)}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+button{font:inherit;color:inherit}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0}
+textarea{resize:vertical;line-height:1.5;width:100%;display:block}
+input:focus,select:focus,textarea:focus{outline:2px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:0}
+.top{display:flex;align-items:center;gap:8px;padding:8px 14px;padding-top:max(8px,env(safe-area-inset-top));border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+.top h1{font:600 20px/1 Georgia,"Times New Roman",serif;margin:0 6px 0 0;letter-spacing:.01em}
+.nav{display:flex;align-items:center;gap:4px}
+#rangeLabel{font-weight:600;margin:0 6px;white-space:nowrap}
+.sp{flex:1}
+.btn{border:1px solid var(--line);background:var(--panel);padding:7px 12px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.danger{color:#c0392b}
+.btn.block{display:block;width:100%;text-align:left;margin-bottom:6px}
+.icon-btn{border:1px solid transparent;background:none;width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:18px;line-height:1}
+.icon-btn:hover{background:var(--hover)}
+.mini-btn{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer;color:var(--ink)}
+.mini-btn.rec{background:#c0392b;color:#fff;border-color:#c0392b;animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.7}}
+.link{background:none;border:0;color:var(--accent);cursor:pointer;padding:0;font-size:12px}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:var(--panel);padding:7px 11px;cursor:pointer}
+.seg button.on{background:var(--ink);color:var(--panel)}
+.search{position:relative}
+.search input{width:180px;border-radius:999px;padding-left:12px}
+.results{position:absolute;right:0;top:calc(100% + 6px);width:min(360px,90vw);max-height:60vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);z-index:30;padding:6px}
+.results button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:8px;cursor:pointer}
+.results button:hover{background:var(--hover)}
+.results small{color:var(--muted);display:block}
+#syncBtn{border-radius:999px;font-size:12px;padding:6px 11px}
+#syncBtn.warn{border-color:#d9822b;color:#b35f10}
+#syncBtn.ok{color:#3d7a4a}
+.layout{flex:1;display:flex;min-height:0}
+aside{width:250px;border-right:1px solid var(--line);padding:14px;overflow:auto;background:var(--panel);flex-shrink:0}
+main{flex:1;overflow:auto;min-width:0;position:relative}
+.side-h{display:flex;justify-content:space-between;align-items:center;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 8px}
+.cat-row{display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer;border-radius:6px}
+.cat-row:hover{background:var(--hover)}
+.cat-row input{accent-color:var(--c)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex-shrink:0;display:inline-block}
+.privacy{font-size:12px;color:var(--muted);margin-top:16px;line-height:1.45}
+/* mini calendar */
+.mini-h{display:flex;align-items:center;justify-content:space-between;font-weight:600;margin-bottom:6px}
+.mini-g{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;text-align:center;font-size:12px}
+.mini-g .wd{color:var(--muted);font-size:10px;padding:2px 0}
+.mini-g button{border:0;background:none;padding:5px 0;border-radius:6px;cursor:pointer;position:relative}
+.mini-g button:hover{background:var(--hover)}
+.mini-g button.out{color:var(--muted);opacity:.5}
+.mini-g button.today{color:var(--accent);font-weight:700}
+.mini-g button.sel{background:var(--ink);color:var(--panel)}
+.mini-g button.has::after{content:"";position:absolute;bottom:1px;left:50%;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:var(--accent)}
+/* time grid */
+.tg{--n:7;min-width:660px}
+.tg.day{min-width:0}
+.tg-head,.tg-allday,.tg-body{display:grid;grid-template-columns:52px repeat(var(--n),minmax(0,1fr))}
+.tg-head{position:sticky;top:0;z-index:6;background:var(--panel);border-bottom:1px solid var(--line)}
+.tg-dh{padding:6px 4px;text-align:center;cursor:pointer;border-left:1px solid var(--line)}
+.tg-dh:hover{background:var(--hover)}
+.tg-dh .dn{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.tg-dh .dd{font-size:19px;font-weight:600;display:inline-grid;place-items:center;width:32px;height:32px}
+.tg-dh.is-today .dd{background:var(--accent);color:#fff;border-radius:50%}
+.tg-allday{border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:56px;z-index:5}
+.tg-ad{border-left:1px solid var(--line);min-height:30px;padding:3px;cursor:copy;display:flex;flex-direction:column;gap:2px}
+.lbl{font-size:10px;color:var(--muted);padding:8px 4px 0;text-align:right}
+.tg-gut .tg-hl{font-size:11px;color:var(--muted);text-align:right;padding-right:6px}
+.tg-hl span{position:relative;top:-8px}
+.tg-col{position:relative;border-left:1px solid var(--line)}
+.tg-slot{border-top:1px solid var(--line);cursor:copy}
+.tg-slot:nth-child(odd){}
+.tg-slot:hover{background:var(--hover)}
+.tg-col.is-today{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+.ev{position:absolute;border-radius:6px;padding:2px 6px;font-size:12px;overflow:hidden;cursor:pointer;background:color-mix(in srgb,var(--c) 20%,var(--panel));border-left:3px solid var(--c);line-height:1.25;z-index:2}
+.ev:hover{filter:brightness(.97);z-index:4;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.ev-t{font-size:11px;opacity:.75}
+.ev-ti{font-weight:600}
+.ev-n{white-space:pre-wrap;opacity:.85;margin-top:2px}
+.chip{display:block;border-radius:5px;padding:2px 6px;font-size:12px;background:color-mix(in srgb,var(--c) 20%,var(--panel));border-left:3px solid var(--c);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;border-top:0;border-right:0;border-bottom:0;width:100%}
+.chip:hover{filter:brightness(.96)}
+.now{position:absolute;left:0;right:0;height:2px;background:var(--now);z-index:3;pointer-events:none}
+.now::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--now)}
+/* day view */
+.dayview{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);min-height:100%}
+.dayview .gridside{border-right:1px solid var(--line);overflow:visible}
+.journal{padding:18px 22px 60px}
+.journal h2{font:600 22px/1.2 Georgia,serif;margin:0 0 4px}
+.journal .sub{color:var(--muted);margin-bottom:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:10px;padding:12px 14px;margin-bottom:12px;cursor:pointer}
+.card:hover{box-shadow:0 3px 14px rgba(0,0,0,.08)}
+.card .meta{font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.card .ti{font-weight:600;font-size:15px;margin:3px 0}
+.card .nt{white-space:pre-wrap;line-height:1.55}
+.card .files{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.card .files img{height:90px;border-radius:6px;border:1px solid var(--line);object-fit:cover}
+.card .files a{font-size:12px;color:var(--ink);background:var(--hover);padding:4px 9px;border-radius:999px;text-decoration:none}
+.card audio{height:34px;max-width:100%}
+.empty{color:var(--muted);font-style:italic;padding:20px 0}
+/* month */
+.month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));min-height:100%;grid-auto-rows:minmax(104px,1fr)}
+.month .mh{position:sticky;top:0;background:var(--panel);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:center;padding:6px;border-bottom:1px solid var(--line);z-index:2}
+.mc{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:4px;cursor:copy;display:flex;flex-direction:column;gap:2px;min-width:0;overflow:hidden}
+.mc.out{background:color-mix(in srgb,var(--line) 30%,transparent)}
+.mc .num{border:0;background:none;cursor:pointer;font-weight:600;align-self:flex-start;padding:1px 6px;border-radius:999px;font-size:12px}
+.mc .num:hover{background:var(--hover)}
+.mc.today .num{background:var(--accent);color:#fff}
+.mc .more{font-size:11px;color:var(--muted);border:0;background:none;text-align:left;cursor:pointer;padding:0 4px}
+/* dialogs */
+dialog.dlg{border:0;border-radius:14px;padding:0;background:var(--panel);color:var(--ink);width:min(640px,96vw);max-height:94vh;box-shadow:var(--shadow)}
+dialog::backdrop{background:rgba(30,25,20,.45)}
+.dlg .inner{padding:16px 20px 18px;display:flex;flex-direction:column;gap:12px}
+.dlg h2{margin:0;font:600 19px Georgia,serif}
+.dlg-h{display:flex;align-items:center;gap:8px}
+.title-input{flex:1;font-size:18px;font-weight:600;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;padding:6px 2px}
+.dlg-f{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:4px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+label.chk{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink);cursor:pointer}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.row input[type=number]{width:64px}
+fieldset{border:1px solid var(--line);border-radius:10px;padding:8px 12px 12px;margin:0;display:flex;flex-direction:column;gap:8px}
+legend{font-size:12px;color:var(--muted);padding:0 4px}
+.banner{background:color-mix(in srgb,var(--accent) 12%,var(--panel));border-radius:8px;padding:8px 12px;font-size:13px;display:flex;flex-direction:column;gap:6px}
+.days{display:flex;gap:4px}
+.days button{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--panel);cursor:pointer;font-size:12px}
+.days button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.notes-h{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted)}
+.att{border:1px dashed var(--line);border-radius:10px;padding:10px}
+.att.drag{border-color:var(--accent);background:var(--hover)}
+.att-h{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.att-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.att-item{display:flex;align-items:center;gap:8px;background:var(--bg);border-radius:8px;padding:6px 8px;font-size:13px}
+.att-item img{width:44px;height:44px;object-fit:cover;border-radius:6px}
+.att-item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-item audio{height:32px;max-width:200px}
+.att-item a{color:var(--accent);font-size:12px}
+.hint{font-size:12px;color:var(--muted)}
+.cat-edit{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.cat-edit input[type=color]{width:38px;height:34px;padding:2px}
+.cat-edit input[type=text]{flex:1}
+.warnbox{background:#fff4e5;color:#7a4b0d;border-radius:8px;padding:10px 12px;font-size:13px}
+@media (prefers-color-scheme:dark){.warnbox{background:#3b2c18;color:#f2c98d}}
+/* print dialog */
+dialog.wide{width:min(1240px,98vw);height:94vh}
+.print-wrap{display:grid;grid-template-columns:330px 1fr;height:100%}
+.print-opts{padding:16px 18px;overflow:auto;display:flex;flex-direction:column;gap:10px;border-right:1px solid var(--line)}
+.print-preview{background:#7d756d;overflow:auto;padding:20px}
+.quick{display:flex;gap:6px;flex-wrap:wrap}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:999px;z-index:100;font-size:13px;box-shadow:var(--shadow);opacity:0;transition:opacity .25s;pointer-events:none}
+.toast.on{opacity:1}
+.syncbar{display:none;background:#fff4e5;color:#7a4b0d;padding:8px 14px;font-size:13px;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
+.syncbar.on{display:flex}
+@media (prefers-color-scheme:dark){.syncbar{background:#3b2c18;color:#f2c98d}}
+/* ---------- PRINT CONTENT (shared preview + print) ---------- */
+.p-root{color:#1d1a17;font-family:Georgia,"Times New Roman",serif;line-height:1.35;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.p-root.sans{font-family:system-ui,"Segoe UI",Roboto,Arial,sans-serif}
+.p-page{width:var(--pw);background:#fff;position:relative}
+.p-fixed{height:var(--ph);overflow:hidden}
+#pPreview .p-page{box-sizing:content-box;padding:var(--pm);margin:0 auto 18px;box-shadow:0 4px 20px rgba(0,0,0,.35)}
+#pPreview .p-fixed{height:var(--ph)}
+.p-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;border-bottom:1.5px solid #1d1a17;padding-bottom:1.5mm;margin-bottom:3mm}
+.p-ttl{font-size:1.6em;font-weight:700}
+.p-sub{font-size:1.05em;color:#555}
+.p-day{margin-bottom:5mm;break-inside:auto}
+.p-day h2{font-size:1.25em;margin:0 0 2mm;padding-bottom:1mm;border-bottom:.3mm solid #bbb;break-after:avoid}
+.p-entry{display:flex;gap:4mm;margin-bottom:3mm;break-inside:avoid}
+.p-time{width:13mm;flex-shrink:0;font-size:.9em;color:#444;text-align:right;padding-top:.3mm;font-variant-numeric:tabular-nums}
+.p-body{flex:1;border-left:1mm solid var(--c);padding-left:3mm;min-width:0}
+.p-title{font-weight:700}
+.p-cat{font-weight:400;font-size:.78em;text-transform:uppercase;letter-spacing:.05em;color:#666;margin-right:2mm}
+.p-notes{white-space:pre-wrap;margin-top:.8mm}
+.p-imgs{display:flex;flex-wrap:wrap;gap:2mm;margin-top:1.5mm}
+.p-imgs img{max-width:100%;object-fit:contain;border:.2mm solid #ccc}
+.p-att{font-size:.85em;color:#555;margin-top:1mm}
+.p-empty{color:#888;font-style:italic;margin:0 0 2mm}
+.p-lines div{border-bottom:.25mm solid #bbb;height:8mm}
+.pg{display:grid}
+.pg-dh{text-align:center;font-weight:700;font-size:.95em;border-bottom:.3mm solid #333;padding:1mm 0;height:7mm;overflow:hidden}
+.pg-gl{font-size:.7em;color:#777;text-align:right;padding-right:1mm}
+.pg-ad{border-left:.2mm solid #bbb;border-bottom:.3mm solid #999;padding:.5mm;overflow:hidden}
+.pg-chip{font-size:.78em;border-left:.8mm solid var(--c);padding-left:1mm;margin-bottom:.5mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pg-gut{position:relative}
+.pg-gut div{font-size:.72em;color:#666;text-align:right;padding-right:1.2mm;line-height:1}
+.pg-col{position:relative;border-left:.2mm solid #bbb;border-bottom:.2mm solid #bbb}
+.pg-hr{position:absolute;left:0;right:0;border-top:.2mm solid #ddd}
+.pg-ev{position:absolute;overflow:hidden;font-size:.78em;line-height:1.2;padding:.4mm 1mm;background:color-mix(in srgb,var(--c) 16%,#fff);border-left:.8mm solid var(--c);border-top:.15mm solid #fff}
+.pg-n{white-space:pre-wrap;color:#333}
+.pday{display:grid;grid-template-columns:42% 1fr;gap:5mm}
+.pm{width:100%;border-collapse:collapse;table-layout:fixed}
+.pm th{font-size:.8em;text-transform:uppercase;letter-spacing:.05em;color:#555;border-bottom:.3mm solid #333;height:7mm}
+.pm td{border:.2mm solid #bbb;vertical-align:top;padding:.8mm;overflow:hidden}
+.pm td>div{overflow:hidden;height:100%}
+.pm .n{font-weight:700;font-size:.9em}
+.pm td.out{background:#f3f0eb;color:#999}
+.pm-e{font-size:.75em;line-height:1.2;border-left:.7mm solid var(--c);padding-left:.8mm;margin-top:.5mm;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.pm-e.wrap{white-space:normal}
+#print-area{display:none}
+@media print{
+  body{display:block;overflow:visible;background:#fff}
+  body>*:not(#print-area){display:none!important}
+  #print-area{display:block}
+  .p-page+.p-page{break-before:page}
+}
+/* responsive */
+@media (max-width:820px){
+  aside{position:fixed;left:0;top:0;bottom:0;z-index:40;box-shadow:var(--shadow);transform:translateX(-105%);transition:transform .2s}
+  body.side-open aside{transform:none}
+  body.side-open::after{content:"";position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:35}
+  .top h1{display:none}
+  .search input{width:120px}
+  .hide-s{display:none}
+  .dayview{grid-template-columns:1fr}
+  .dayview .gridside{border-right:0;border-bottom:1px solid var(--line)}
+  .print-wrap{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .print-opts{border-right:0;max-height:55vh}
+  dialog.dlg:not(.wide){width:100vw;max-width:100vw;max-height:100vh;height:100%;border-radius:0}
+  .grid2{grid-template-columns:1fr}
+}
+@media (min-width:821px){#btnSide{display:none}}
+</style>
+</head>
+<body>
+<div class="syncbar" id="syncBar"><span id="syncBarText"></span><span class="sp"></span><button class="btn" id="syncBarBtn">Reconnecter</button></div>
+<header class="top">
+  <button id="btnSide" class="icon-btn" title="Menu">☰</button>
+  <h1>Journal</h1>
+  <div class="nav">
+    <button id="prev" class="icon-btn" title="Précédent">‹</button>
+    <button id="today" class="btn">Aujourd'hui</button>
+    <button id="next" class="icon-btn" title="Suivant">›</button>
+  </div>
+  <span id="rangeLabel"></span>
+  <span class="sp"></span>
+  <div class="search"><input id="search" type="search" placeholder="Rechercher…" autocomplete="off"><div id="results" class="results" hidden></div></div>
+  <div class="seg" id="viewSeg"><button data-v="day">Jour</button><button data-v="week">Semaine</button><button data-v="month">Mois</button></div>
+  <button id="btnNew" class="btn primary">+ Entrée</button>
+  <button id="btnPrint" class="btn" title="Imprimer">🖨<span class="hide-s"> Imprimer</span></button>
+  <button id="syncBtn" class="btn" title="Synchronisation">☁</button>
+</header>
+<div class="layout">
+  <aside id="side">
+    <div id="mini"></div>
+    <div class="side-h"><span>Catégories</span><button id="btnCats" class="link">Gérer</button></div>
+    <div id="catList"></div>
+    <div class="side-h"><span>Outils</span></div>
+    <button id="btnSyncDlg" class="btn block">☁ Synchronisation</button>
+    <button id="btnSettings" class="btn block">⚙ Réglages</button>
+    <button id="btnExport" class="btn block">⬇ Sauvegarde (export)</button>
+    <button id="btnImport" class="btn block">⬆ Restaurer une sauvegarde</button>
+    <input type="file" id="importFile" accept=".json,application/json" hidden>
+    <p class="privacy">🔒 Vos entrées sont stockées sur cet appareil et, si la synchronisation est activée, chiffrées avant d'être envoyées sur votre Google Drive. Personne d'autre ne peut les lire.</p>
+  </aside>
+  <main id="main"></main>
+</div>
+<div id="print-area"></div>
+<div class="toast" id="toast"></div>
+
+<!-- Event editor -->
+<dialog id="dlgEvent" class="dlg">
+<form id="evForm" class="inner" novalidate>
+  <div class="dlg-h"><input id="evTitle" class="title-input" placeholder="Titre (facultatif)"><button type="button" class="icon-btn" data-close title="Fermer">✕</button></div>
+  <div id="occBanner" class="banner" hidden>
+    <span id="occText"></span>
+    <label class="chk"><input type="checkbox" id="evOnlyThis"> Modifier seulement cette occurrence</label>
+  </div>
+  <div class="grid2">
+    <label class="f">Date<input type="date" id="evDate" required></label>
+    <label class="f">Catégorie<select id="evCat"></select></label>
+  </div>
+  <div class="row">
+    <label class="chk"><input type="checkbox" id="evAllDay"> Sans heure (toute la journée)</label>
+    <span class="row" id="timeFields"><label class="chk">De <input type="time" id="evStart"></label><label class="chk">à <input type="time" id="evEnd"></label></span>
+  </div>
+  <fieldset id="recBox">
+    <legend>Récurrence</legend>
+    <div class="row">
+      <select id="recFreq"><option value="none">Aucune</option><option value="daily">Chaque jour</option><option value="weekly">Chaque semaine</option><option value="monthly">Chaque mois</option><option value="yearly">Chaque année</option></select>
+      <span id="recIvWrap" class="row">tous les <input type="number" id="recIv" min="1" value="1"> <span id="recUnit"></span></span>
+    </div>
+    <div id="recDays" class="days"></div>
+    <div class="row" id="recEndRow">Fin :
+      <select id="recEnd"><option value="never">jamais</option><option value="until">le</option><option value="count">après</option></select>
+      <input type="date" id="recUntil"><span id="recCountWrap" class="row"><input type="number" id="recCount" min="1" value="10"> fois</span>
+    </div>
+  </fieldset>
+  <div>
+    <div class="notes-h"><span>Notes</span><button type="button" id="btnDictate" class="mini-btn" title="Dictée vocale : la reconnaissance est faite par le navigateur (Google ou Apple).">🎤 Dicter</button></div>
+    <textarea id="evNotes" rows="8" placeholder="Écrivez ici…"></textarea>
+  </div>
+  <div class="att" id="attZone">
+    <div class="att-h"><span>Pièces jointes <span class="hint">— glissez des fichiers ici</span></span>
+      <span class="row" style="gap:6px"><label class="mini-btn">📎 Ajouter<input type="file" id="evFiles" multiple hidden></label><label class="mini-btn">📷 Photo<input type="file" id="evPhoto" accept="image/*" capture="environment" hidden></label><button type="button" id="btnMemo" class="mini-btn" title="Enregistrement audio stocké uniquement chez vous">🔴 Mémo vocal</button></span></div>
+    <div id="attList" class="att-list"></div>
+  </div>
+  <div class="dlg-f">
+    <span id="delZone"><button type="button" id="btnDel" class="btn danger">Supprimer</button></span>
+    <span id="delChoice" hidden class="row"><button type="button" id="delOcc" class="btn danger">Cette occurrence</button><button type="button" id="delSeries" class="btn danger">Toute la série</button></span>
+    <span class="sp"></span>
+    <button type="button" class="btn" data-close>Annuler</button>
+    <button type="submit" class="btn primary">Enregistrer</button>
+  </div>
+</form>
+</dialog>
+
+<!-- Categories -->
+<dialog id="dlgCats" class="dlg"><div class="inner">
+  <div class="dlg-h"><h2 style="flex:1">Catégories</h2><button type="button" class="icon-btn" data-close>✕</button></div>
+  <div id="catEditList"></div>
+  <div class="row"><button class="btn" id="catAdd">+ Nouvelle catégorie</button></div>
+</div></dialog>
+
+<!-- Settings -->
+<dialog id="dlgSettings" class="dlg"><div class="inner">
+  <div class="dlg-h"><h2 style="flex:1">Réglages</h2><button type="button" class="icon-btn" data-close>✕</button></div>
+  <div class="grid2">
+    <label class="f">Début de journée affiché<select id="setStart"></select></label>
+    <label class="f">Fin de journée affichée<select id="setEnd"></select></label>
+  </div>
+  <label class="f">Premier jour de la semaine<select id="setWeek"><option value="1">Lundi</option><option value="0">Dimanche</option></select></label>
+  <p class="hint">Les entrées en dehors de ces heures restent visibles, collées en haut ou en bas de la grille.</p>
+  <div class="dlg-f"><span class="sp"></span><button class="btn primary" id="setSave">Enregistrer</button></div>
+</div></dialog>
+
+<!-- Sync -->
+<dialog id="dlgSync" class="dlg"><div class="inner" id="syncInner"></div></dialog>
+
+<!-- Print -->
+<dialog id="dlgPrint" class="dlg wide"><div class="print-wrap">
+  <div class="print-opts">
+    <div class="dlg-h"><h2 style="flex:1">Impression</h2><button type="button" class="icon-btn" data-close>✕</button></div>
+    <label class="f">Mise en page<select id="pFormat">
+      <option value="list">Journal détaillé (liste)</option>
+      <option value="day">Jour : grille horaire + notes</option>
+      <option value="week">Semaine : grille horaire</option>
+      <option value="month">Mois : calendrier</option>
+    </select></label>
+    <div class="quick"><button class="mini-btn" data-q="day">Jour affiché</button><button class="mini-btn" data-q="week">Semaine affichée</button><button class="mini-btn" data-q="month">Mois affiché</button></div>
+    <div class="grid2" style="grid-template-columns:1fr 1fr"><label class="f">Du<input type="date" id="pFrom"></label><label class="f">Au<input type="date" id="pTo"></label></div>
+    <fieldset><legend>Catégories <button class="link" id="pAllCats" type="button">tout</button> · <button class="link" id="pNoCats" type="button">rien</button></legend><div id="pCats"></div></fieldset>
+    <fieldset><legend>Contenu</legend>
+      <label class="chk"><input type="checkbox" id="pNotes" checked> Notes</label>
+      <label class="chk"><input type="checkbox" id="pImages" checked> Images</label>
+      <label class="f">Taille des images<select id="pImgSize"><option value="25">Petites</option><option value="50" selected>Moyennes</option><option value="90">Grandes</option></select></label>
+      <label class="chk"><input type="checkbox" id="pAttach" checked> Noms des autres pièces jointes</label>
+      <label class="chk"><input type="checkbox" id="pEmpty"> Afficher les jours vides</label>
+      <label class="chk"><input type="checkbox" id="pPageDay"> Une page par jour (liste)</label>
+      <label class="f">Lignes vierges pour écrire à la main, par jour<input type="number" id="pLines" min="0" max="40" value="0"></label>
+      <div class="grid2" style="grid-template-columns:1fr 1fr"><label class="f">Grille : de (h)<input type="number" id="pH1" min="0" max="23"></label><label class="f">à (h)<input type="number" id="pH2" min="1" max="24"></label></div>
+    </fieldset>
+    <fieldset><legend>Page</legend>
+      <div class="grid2" style="grid-template-columns:1fr 1fr">
+        <label class="f">Format<select id="pPaper"><option value="A4">A4</option><option value="A5">A5</option><option value="letter">Letter</option></select></label>
+        <label class="f">Orientation<select id="pOrient"><option value="portrait">Portrait</option><option value="landscape">Paysage</option></select></label>
+        <label class="f">Marges (mm)<input type="number" id="pMargin" min="3" max="40" value="12"></label>
+        <label class="f">Texte (pt)<input type="number" id="pFont" min="6" max="18" value="10"></label>
+      </div>
+      <label class="f">Police<select id="pFam"><option value="serif">Classique (serif)</option><option value="sans">Moderne (sans serif)</option></select></label>
+      <label class="chk"><input type="checkbox" id="pColor" checked> Couleurs des catégories</label>
+      <label class="f">Titre en haut de page<input id="pTitle" placeholder="ex. Mon journal"></label>
+    </fieldset>
+    <p class="hint">Astuce : dans la fenêtre d'impression, choisissez « Enregistrer au format PDF » pour garder un PDF.</p>
+    <div class="row"><span class="sp"></span><button class="btn primary" id="pGo">🖨 Imprimer…</button></div>
+  </div>
+  <div class="print-preview"><div id="pPreview"></div></div>
+</div></dialog>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="sync.js"></script>
+</body>
+</html>
