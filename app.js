@@ -64,10 +64,21 @@ function enumDays(from, to) { const out = []; for (let d = parse(from), i = 0; y
 const NOCAT = { id: '', name: 'Sans catégorie', color: '#9a9187' };
 const catOf = id => cats.find(c => c.id === id && !c.deleted) || NOCAT;
 const isTimed = ev => !ev.allDay && !!ev.start;
-const dTitle = ev => ev.title || (ev.notes || '').split('\n')[0].slice(0, 70) || '(sans titre)';
 const hasRec = ev => ev.rec && ev.rec.freq && ev.rec.freq !== 'none';
-function matches(ev, q) {
-  const hay = norm([ev.title, ev.notes, ...(ev.attachments || []).map(a => a.name), catOf(ev.catId).name].join(' '));
+/* Données propres à une occurrence : notes, pièces jointes, fait, avancement */
+function occData(ev, date) {
+  const legacy = { notes: ev.notes || '', attachments: ev.attachments || [], done: !!ev.done, progress: +ev.progress || 0 };
+  if (!hasRec(ev)) return legacy;
+  const o = (ev.occ || {})[date];
+  if (!o) return date === ev.date ? legacy : { notes: '', attachments: [], done: false, progress: 0 };
+  return { notes: o.notes || '', attachments: o.attachments || [], done: !!o.done, progress: +o.progress || 0 };
+}
+const allAtts = ev => [...(ev.attachments || []), ...Object.values(ev.occ || {}).flatMap(o => o.attachments || [])];
+const dTitle = (ev, date) => ev.title || (date ? occData(ev, date).notes : (ev.notes || '')).split('\n')[0].slice(0, 70) || '(sans titre)';
+function matches(ev, q, date) {
+  const notes = date ? [occData(ev, date).notes] : [ev.notes, ...Object.values(ev.occ || {}).map(o => o.notes)];
+  const atts = date ? occData(ev, date).attachments : allAtts(ev);
+  const hay = norm([ev.title, ...notes, ...atts.map(a => a.name), catOf(ev.catId).name].join(' '));
   return norm(q).split(/\s+/).filter(Boolean).every(w => hay.includes(w));
 }
 
@@ -113,8 +124,8 @@ function occurrences(from, to, opt = {}) {
   for (const ev of events) {
     if (ev.deleted) continue;
     if (opt.cats) { if (!opt.cats.has(ev.catId || '')) continue; }
-    else { if (hidden.has(ev.catId || '')) continue; if (query && !matches(ev, query)) continue; }
-    for (const d of occDates(ev, from, to)) out.push({ ev, date: d });
+    else if (hidden.has(ev.catId || '')) continue;
+    for (const d of occDates(ev, from, to)) if (opt.cats || !query || matches(ev, query, d)) out.push({ ev, date: d });
   }
   return out.sort((a, b) => a.date.localeCompare(b.date) || (isTimed(a.ev) - isTimed(b.ev)) || (a.ev.start || '').localeCompare(b.ev.start || '') || (a.ev.created || 0) - (b.ev.created || 0));
 }
@@ -166,7 +177,7 @@ async function hydrate(root) {
   }
 }
 async function gcFiles(ids) {
-  const used = new Set(live().flatMap(e => (e.attachments || []).map(a => a.id)));
+  const used = new Set(live().flatMap(e => allAtts(e).map(a => a.id)));
   const dead = (await metaGet('deadFiles')) || [];
   let changed = false;
   for (const id of ids) {
@@ -187,7 +198,7 @@ async function saveEvent(ev) {
 }
 async function deleteEvent(id) {
   const ev = events.find(e => e.id === id); if (!ev) return;
-  const ids = (ev.attachments || []).map(a => a.id);
+  const ids = allAtts(ev).map(a => a.id);
   const tomb = { id, deleted: true, updated: Date.now() };
   await dbPut('events', tomb);
   events[events.indexOf(ev)] = tomb;
@@ -227,11 +238,13 @@ function renderCatList() {
   const list = [...liveCats(), ...(used ? [NOCAT] : [])];
   $('#catList').innerHTML = list.map(c => `<label class="cat-row" style="--c:${c.color}"><input type="checkbox" data-cat="${c.id}" ${hidden.has(c.id) ? '' : 'checked'}><span class="dot"></span>${esc(c.name)}</label>`).join('') || '<p class="hint">Aucune catégorie.</p>';
 }
+const doneBox = (o, od) => `<span class="done-box ${od.done ? 'on' : ''}" data-toggle="${o.ev.id}" data-date="${o.date}" title="${od.done ? 'Marquer comme non fait' : 'Marquer comme fait'}" role="checkbox" aria-checked="${od.done}">${od.done ? '✓' : ''}</span>`;
+const progBar = od => !od.done && od.progress ? `<span class="pbar"><i style="width:${od.progress}%"></i></span>` : '';
 function evBlock(o, top, hgt, it, showNotes) {
-  const ev = o.ev, c = catOf(ev.catId);
-  const icons = (hasRec(ev) ? ' ↻' : '') + ((ev.attachments || []).length ? ' 📎' : '');
-  return `<div class="ev" data-id="${ev.id}" data-date="${o.date}" style="top:${top}px;height:${hgt}px;left:calc(${it.col / it.n * 100}% + 2px);width:calc(${100 / it.n}% - 4px);--c:${c.color}" title="${esc(dTitle(ev))}">
-    ${hgt < 34 ? `<div class="ev-ti" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="ev-t">${esc(ev.start)}</span> ${esc(dTitle(ev))}${icons}</div>` : `<div class="ev-t">${esc(ev.start)}${ev.end ? '–' + esc(ev.end) : ''}${icons}</div><div class="ev-ti">${esc(dTitle(ev))}</div>${showNotes && ev.notes && ev.title ? `<div class="ev-n">${esc(ev.notes)}</div>` : ''}`}</div>`;
+  const ev = o.ev, c = catOf(ev.catId), od = occData(ev, o.date);
+  const icons = (hasRec(ev) ? ' ↻' : '') + (od.attachments.length ? ' 📎' : '') + (!od.done && od.progress ? ` · ${od.progress} %` : '');
+  return `<div class="ev" data-id="${ev.id}" data-date="${o.date}" ${od.done ? 'data-done' : ''} style="top:${top}px;height:${hgt}px;left:calc(${it.col / it.n * 100}% + 2px);width:calc(${100 / it.n}% - 4px);--c:${c.color}" title="${esc(dTitle(ev, o.date))}">${doneBox(o, od)}
+    ${hgt < 34 ? `<div class="ev-ti" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="ev-t">${esc(ev.start)}</span> ${esc(dTitle(ev, o.date))}${icons}</div>` : `<div class="ev-t">${esc(ev.start)}${ev.end ? '–' + esc(ev.end) : ''}${icons}</div><div class="ev-ti">${esc(dTitle(ev, o.date))}</div>${showNotes && od.notes && ev.title ? `<div class="ev-n">${esc(od.notes)}</div>` : ''}`}${progBar(od)}</div>`;
 }
 function renderTimeGrid() {
   const isDay = view === 'day';
@@ -267,19 +280,19 @@ function renderTimeGrid() {
     renderJournal(occ.filter(o => o.date === ymd(cursor)));
   } else main.innerHTML = g;
 }
-const chip = o => `<button class="chip" data-id="${o.ev.id}" data-date="${o.date}" style="--c:${catOf(o.ev.catId).color}" title="${esc(dTitle(o.ev))}">${isTimed(o.ev) ? esc(o.ev.start) + ' ' : ''}${esc(dTitle(o.ev))}${hasRec(o.ev) ? ' ↻' : ''}</button>`;
+const chip = o => { const od = occData(o.ev, o.date); return `<div class="chip" data-id="${o.ev.id}" data-date="${o.date}" ${od.done ? 'data-done' : ''} style="--c:${catOf(o.ev.catId).color}" title="${esc(dTitle(o.ev, o.date))}">${doneBox(o, od)}<span class="chip-t">${isTimed(o.ev) ? esc(o.ev.start) + ' ' : ''}${esc(dTitle(o.ev, o.date))}${hasRec(o.ev) ? ' ↻' : ''}${!od.done && od.progress ? ` · ${od.progress} %` : ''}</span></div>`; };
 function renderJournal(list) {
   const el = $('#journal');
   let h = `<h2>${cap(fLong.format(cursor))}</h2><div class="sub">${list.length ? list.length + ' entrée' + (list.length > 1 ? 's' : '') : ''}</div>`;
   if (!list.length) h += `<p class="empty">Rien pour ce jour. Cliquez dans la grille ou sur « + Entrée » pour écrire.</p>`;
   for (const o of list) {
-    const ev = o.ev, c = catOf(ev.catId);
-    const files = (ev.attachments || []).map(a => /^image\//.test(a.type) ? `<img data-file="${a.id}" alt="${esc(a.name)}">`
+    const ev = o.ev, c = catOf(ev.catId), od = occData(ev, o.date);
+    const files = od.attachments.map(a => /^image\//.test(a.type) ? `<img data-file="${a.id}" alt="${esc(a.name)}">`
       : /^audio\//.test(a.type) ? `<audio controls preload="none" data-file="${a.id}"></audio>`
       : `<a data-file="${a.id}" target="_blank" ${viewable(a.type) ? '' : `download="${esc(a.name)}"`} onclick="event.stopPropagation()">${fileIcon(a.type, a.name)} ${esc(a.name)}</a>`).join('');
-    h += `<div class="card" data-id="${ev.id}" data-date="${o.date}" style="--c:${c.color}">
-      <div class="meta"><span class="dot"></span>${esc(c.name)}<span>·</span>${isTimed(ev) ? esc(ev.start) + (ev.end ? ' – ' + esc(ev.end) : '') : 'journée'}${hasRec(ev) ? `<span>· ↻ ${esc(recText(ev.rec))}</span>` : ''}</div>
-      <div class="ti">${esc(ev.title || '')}</div>${ev.notes ? `<div class="nt">${esc(ev.notes)}</div>` : ''}
+    h += `<div class="card" data-id="${ev.id}" data-date="${o.date}" ${od.done ? 'data-done' : ''} style="--c:${c.color}">
+      <div class="meta">${doneBox(o, od)}<span class="dot"></span>${esc(c.name)}<span>·</span>${isTimed(ev) ? esc(ev.start) + (ev.end ? ' – ' + esc(ev.end) : '') : 'journée'}${hasRec(ev) ? `<span>· ↻ ${esc(recText(ev.rec))}</span>` : ''}${od.done ? '<span class="done-lbl">· Fait</span>' : od.progress ? `<span>· ${od.progress} %</span>` : ''}</div>
+      <div class="ti">${esc(ev.title || '')}</div>${od.progress && !od.done ? `<div class="gauge"><i style="width:${od.progress}%"></i></div>` : ''}${od.notes ? `<div class="nt">${esc(od.notes)}</div>` : ''}
       ${files ? `<div class="files" onclick="if(event.target.tagName!=='IMG')event.stopPropagation()">${files}</div>` : ''}</div>`;
   }
   el.innerHTML = h; hydrate(el);
@@ -312,25 +325,28 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.ad
 /* ---------------- Éditeur ---------------- */
 let draft = null;
 const dlgEvent = $('#dlgEvent');
-function openEditor(id, occDate, preset = {}) {
+const NOREC = () => ({ freq: 'none', interval: 1, days: [], until: '', count: null });
+const recNorm = r => JSON.stringify({ f: r?.freq || 'none', i: +r?.interval || 1, d: [...(r?.days || [])].sort(), u: r?.until || '', c: r?.count || null });
+function openEditor(id, occDate, preset = {}, keepOpen = false) {
   const isNew = !id;
   const base = isNew ? null : events.find(e => e.id === id);
   if (!isNew && !base) return;
   const ev = isNew ? {
-    id: uid(), title: '', date: preset.date || ymd(cursor), start: preset.start || '', end: preset.end || '', allDay: !preset.start,
-    catId: (lastCat && catOf(lastCat).id) ? lastCat : (liveCats()[0]?.id || ''), notes: '',
-    rec: { freq: 'none', interval: 1, days: [], until: '', count: null }, exceptions: [], attachments: []
+    id: uid(), title: preset.title || '', date: preset.date || ymd(cursor), start: preset.start || '', end: preset.end || '', allDay: !preset.start,
+    catId: preset.catId !== undefined ? preset.catId : ((lastCat && catOf(lastCat).id) ? lastCat : (liveCats()[0]?.id || '')),
+    notes: '', rec: NOREC(), exceptions: [], attachments: []
   } : structuredClone(base);
-  ev.rec = Object.assign({ freq: 'none', interval: 1, days: [], until: '', count: null }, ev.rec || {});
-  ev.attachments = ev.attachments || [];
-  draft = { ev, isNew, occDate: occDate || ev.date, newFiles: new Set(), removed: [], saved: false };
+  ev.rec = Object.assign(NOREC(), ev.rec || {});
+  const od = isNew ? { notes: '', attachments: [], done: false, progress: 0 } : occData(base, occDate || base.date);
+  draft = { ev, base, isNew, occDate: occDate || ev.date, atts: [...od.attachments], newFiles: new Set(), removed: [], saved: false };
   $('#evTitle').value = ev.title || '';
-  $('#evDate').value = ev.date;
+  $('#evDate').value = draft.occDate;
   $('#evCat').innerHTML = liveCats().map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('') + `<option value="">Sans catégorie</option>`;
   $('#evCat').value = ev.catId || '';
   $('#evAllDay').checked = !isTimed(ev);
   $('#evStart').value = ev.start || '09:00'; $('#evEnd').value = ev.end || '';
-  $('#evNotes').value = ev.notes || '';
+  $('#evNotes').value = od.notes;
+  $('#evDone').checked = !!od.done; $('#evProg').value = od.done ? 100 : (od.progress || 0); updateProgUI();
   const r = ev.rec;
   $('#recFreq').value = r.freq; $('#recIv').value = r.interval || 1;
   $('#recEnd').value = r.until ? 'until' : r.count ? 'count' : 'never';
@@ -338,11 +354,11 @@ function openEditor(id, occDate, preset = {}) {
   buildDays(r.days || []);
   const recurring = !isNew && hasRec(base);
   $('#occBanner').hidden = !recurring;
-  $('#evOnlyThis').checked = false;
-  if (recurring) $('#occText').textContent = `↻ ${recText(base.rec)}. Vous modifiez la série entière (occurrence du ${fDMY.format(parse(draft.occDate))}).`;
-  $('#delZone').hidden = isNew; $('#delChoice').hidden = true;
+  if (recurring) $('#occText').textContent = `↻ ${recText(base.rec)} — occurrence du ${fDMY.format(parse(draft.occDate))}. Notes, pièces jointes et avancement sont propres à cette occurrence.`;
+  $('#delZone').hidden = isNew; $('#btnDup').hidden = isNew;
+  $('#scopeBox').hidden = true; $('#mainFoot').hidden = false;
   updateTimeUI(); updateRecUI(); renderAtt();
-  dlgEvent.showModal();
+  if (!keepOpen) dlgEvent.showModal();
   if (isNew) setTimeout(() => $('#evTitle').focus(), 50);
 }
 function buildDays(sel) {
@@ -352,17 +368,18 @@ function buildDays(sel) {
 }
 function updateTimeUI() { const all = $('#evAllDay').checked; $$('#timeFields input').forEach(i => i.disabled = all); $('#timeFields').style.opacity = all ? .4 : 1; }
 function updateRecUI() {
-  const f = $('#recFreq').value, none = f === 'none', only = $('#evOnlyThis').checked;
-  $('#recBox').disabled = only;
-  $('#recBox').style.opacity = only ? .45 : 1;
+  const f = $('#recFreq').value, none = f === 'none';
   $('#recIvWrap').hidden = none; $('#recEndRow').hidden = none; $('#recDays').hidden = f !== 'weekly';
   const iv = +$('#recIv').value || 1;
   $('#recUnit').textContent = { daily: iv > 1 ? 'jours' : 'jour', weekly: iv > 1 ? 'semaines' : 'semaine', monthly: 'mois', yearly: iv > 1 ? 'ans' : 'an' }[f] || '';
   if (f === 'weekly' && !$$('#recDays .on').length) { const d = parse($('#evDate').value || ymd(cursor)).getDay(); $(`#recDays [data-d="${d}"]`)?.classList.add('on'); }
   const e = $('#recEnd').value; $('#recUntil').hidden = e !== 'until'; $('#recCountWrap').hidden = e !== 'count';
 }
+function updateProgUI() { $('#evProgVal').textContent = $('#evProg').value + ' %'; $('#evProg').style.setProperty('--p', $('#evProg').value + '%'); }
+$('#evProg').oninput = () => { $('#evDone').checked = +$('#evProg').value === 100; updateProgUI(); };
+$('#evDone').onchange = () => { if ($('#evDone').checked) $('#evProg').value = 100; else if (+$('#evProg').value === 100) $('#evProg').value = 0; updateProgUI(); };
 async function renderAtt() {
-  const list = draft.ev.attachments;
+  const list = draft.atts;
   const items = await Promise.all(list.map(async a => ({ a, u: await fileUrl(a.id) })));
   $('#attList').innerHTML = items.map(({ a, u }) => `<div class="att-item">
       ${/^image\//.test(a.type) && u ? `<a href="${u}" target="_blank"><img src="${u}" alt=""></a>` : `<span style="font-size:20px">${fileIcon(a.type, a.name)}</span>`}
@@ -375,56 +392,128 @@ async function addFiles(files) {
   for (const f of files) {
     const id = uid();
     await dbPut('files', { id, blob: f, synced: false });
-    draft.ev.attachments.push({ id, name: f.name || 'fichier', type: f.type || 'application/octet-stream', size: f.size });
+    draft.atts.push({ id, name: f.name || 'fichier', type: f.type || 'application/octet-stream', size: f.size });
     draft.newFiles.add(id);
   }
   renderAtt();
+}
+/* Choix de la portée d'une modification ou d'une suppression sur une série */
+function askScope(title, allowOne) {
+  return new Promise(res => {
+    $('#scopeTitle').textContent = title;
+    $('#scopeOneRow').hidden = !allowOne;
+    $$('#scopeBox input[name=scope]').forEach(i => i.checked = i.value === (allowOne ? 'one' : 'following'));
+    $('#mainFoot').hidden = true; $('#scopeBox').hidden = false;
+    $('#scopeBox').scrollIntoView({ block: 'nearest' });
+    const done = v => { $('#scopeBox').hidden = true; $('#mainFoot').hidden = false; $('#scopeOk').onclick = $('#scopeCancel').onclick = null; res(v); };
+    $('#scopeOk').onclick = () => done($('#scopeBox input[name=scope]:checked').value);
+    $('#scopeCancel').onclick = () => done(null);
+  });
+}
+const OCC_KEYS = ['notes', 'attachments', 'done', 'progress'];
+function setOcc(ev, date, d) {
+  const empty = !d.notes.trim() && !d.attachments.length && !d.done && !d.progress;
+  if (!hasRec(ev)) { Object.assign(ev, d); delete ev.occ; return; }
+  ev.occ = { ...(ev.occ || {}) };
+  if (empty) delete ev.occ[date]; else ev.occ[date] = { ...d };
+  if (date === ev.date) { ev.notes = ''; ev.attachments = []; delete ev.done; delete ev.progress; }
+}
+const shiftDate = (s, n) => ymd(addDays(parse(s), n));
+const daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / 864e5);
+function shiftKeys(obj, n, filter = () => true) { const o = {}; for (const [k, v] of Object.entries(obj || {})) if (filter(k)) o[shiftDate(k, n)] = v; return o; }
+function readFields() {
+  const allDay = $('#evAllDay').checked || !$('#evStart').value;
+  const f = $('#recFreq').value, endMode = $('#recEnd').value;
+  const fl = {
+    title: $('#evTitle').value.trim(), date: $('#evDate').value || draft.occDate, catId: $('#evCat').value, allDay,
+    start: allDay ? '' : $('#evStart').value, end: allDay ? '' : $('#evEnd').value,
+    rec: { freq: f, interval: Math.max(1, +$('#recIv').value || 1), days: f === 'weekly' ? $$('#recDays .on').map(b => +b.dataset.d) : [], until: endMode === 'until' ? $('#recUntil').value : '', count: endMode === 'count' ? Math.max(1, +$('#recCount').value || 1) : null }
+  };
+  if (fl.end && fl.start && fl.end <= fl.start) fl.end = '';
+  return fl;
+}
+function readOcc() {
+  const done = $('#evDone').checked;
+  return { notes: $('#evNotes').value, attachments: draft.atts, done, progress: done ? 100 : +$('#evProg').value || 0 };
 }
 $('#evForm').addEventListener('submit', async e => {
   e.preventDefault();
   if (mediaRec) { toast('Arrêtez d\'abord le mémo vocal.'); return; }
   stopVoice();
-  const ev = draft.ev;
-  ev.title = $('#evTitle').value.trim();
-  ev.date = $('#evDate').value || ymd(cursor);
-  ev.catId = $('#evCat').value;
-  ev.allDay = $('#evAllDay').checked || !$('#evStart').value;
-  ev.start = ev.allDay ? '' : $('#evStart').value;
-  ev.end = ev.allDay ? '' : $('#evEnd').value;
-  if (ev.end && ev.start && ev.end <= ev.start) ev.end = '';
-  ev.notes = $('#evNotes').value;
-  if (!ev.title && !ev.notes.trim() && !ev.attachments.length) { toast('Entrée vide : écrivez un titre ou une note.'); return; }
-  const f = $('#recFreq').value, endMode = $('#recEnd').value;
-  ev.rec = { freq: f, interval: Math.max(1, +$('#recIv').value || 1), days: f === 'weekly' ? $$('#recDays .on').map(b => +b.dataset.d) : [], until: endMode === 'until' ? $('#recUntil').value : '', count: endMode === 'count' ? Math.max(1, +$('#recCount').value || 1) : null };
-  if (!draft.isNew && $('#evOnlyThis').checked) {
-    const orig = events.find(x => x.id === ev.id);
-    orig.exceptions = [...new Set([...(orig.exceptions || []), draft.occDate])];
-    await saveEvent(orig);
-    ev.id = uid(); ev.created = 0; ev.rec = { freq: 'none', interval: 1, days: [], until: '', count: null }; ev.exceptions = [];
+  const fl = readFields(), od = readOcc();
+  if (!fl.title && !od.notes.trim() && !od.attachments.length) { toast('Entrée vide : écrivez un titre ou une note.'); return; }
+  const base = draft.base, oldIds = base ? allAtts(base).map(a => a.id) : [];
+  const toSave = [];
+  if (draft.isNew || !hasRec(base)) {
+    const ev = Object.assign(draft.ev, fl);
+    for (const k of OCC_KEYS) delete ev[k];
+    setOcc(ev, ev.date, od);
+    toSave.push(ev);
+  } else {
+    const occ = draft.occDate;
+    const recChanged = recNorm(fl.rec) !== recNorm(base.rec);
+    const seriesChanged = recChanged || fl.title !== (base.title || '') || fl.catId !== (base.catId || '') || fl.allDay !== !isTimed(base)
+      || (!fl.allDay && (fl.start !== base.start || fl.end !== (base.end || ''))) || fl.date !== occ;
+    let scope = 'occ';
+    if (seriesChanged) {
+      scope = await askScope('Appliquer ces modifications à :', !recChanged);
+      if (!scope) return;
+    }
+    const delta = daysBetween(occ, fl.date);
+    const shiftDays = (rec, ref) => { if (delta && rec.freq === 'weekly' && rec.days?.length && recNorm(rec) === recNorm(ref)) rec.days = rec.days.map(d => ((d + delta) % 7 + 7) % 7); return rec; };
+    if (scope === 'occ') {
+      const b = structuredClone(base); setOcc(b, occ, od); toSave.push(b);
+    } else if (scope === 'one') {
+      const b = structuredClone(base);
+      b.exceptions = [...new Set([...(b.exceptions || []), occ])];
+      setOcc(b, occ, { notes: '', attachments: [], done: false, progress: 0 });
+      const single = { ...fl, id: uid(), rec: NOREC(), exceptions: [], seriesId: base.id };
+      setOcc(single, single.date, od);
+      toSave.push(b, single);
+    } else if (scope === 'all' || occ === base.date) {
+      const b = structuredClone(base);
+      Object.assign(b, { title: fl.title, catId: fl.catId, allDay: fl.allDay, start: fl.start, end: fl.end, rec: shiftDays(structuredClone(fl.rec), base.rec) });
+      if (delta) { b.date = shiftDate(b.date, delta); b.occ = shiftKeys(b.occ, delta); b.exceptions = (b.exceptions || []).map(x => shiftDate(x, delta)); }
+      if (!hasRec(b)) { b.date = fl.date; b.exceptions = []; delete b.occ; for (const k of OCC_KEYS) delete b[k]; }
+      setOcc(b, fl.date, od);
+      toSave.push(b);
+    } else { // cette occurrence et les suivantes
+      const b = structuredClone(base), dayBefore = shiftDate(occ, -1);
+      const before = occDates({ ...base, exceptions: [] }, base.date, dayBefore).length;
+      b.rec = { ...b.rec, until: dayBefore, count: null };
+      b.occ = Object.fromEntries(Object.entries(b.occ || {}).filter(([k]) => k < occ));
+      b.exceptions = (b.exceptions || []).filter(x => x < occ);
+      const rec = shiftDays(structuredClone(fl.rec), base.rec);
+      if (rec.count && base.rec.count && rec.count === base.rec.count) rec.count = Math.max(1, base.rec.count - before);
+      const nw = { ...fl, id: uid(), rec, seriesId: base.id,
+        occ: shiftKeys(base.occ, delta, k => k >= occ), exceptions: (base.exceptions || []).filter(x => x >= occ).map(x => shiftDate(x, delta)) };
+      if (!hasRec(nw)) { delete nw.occ; nw.exceptions = []; }
+      setOcc(nw, nw.date, od);
+      toSave.push(b, nw);
+    }
   }
-  await saveEvent(ev);
-  lastCat = ev.catId;
+  for (const ev of toSave) await saveEvent(ev);
+  lastCat = fl.catId;
   draft.saved = true;
-  await gcFiles(draft.removed);
+  await gcFiles([...oldIds, ...draft.removed]);
   dlgEvent.close();
   render();
 });
 dlgEvent.addEventListener('close', async () => {
   stopVoice(true);
-  if (draft && !draft.saved) { for (const id of draft.newFiles) { await dbDel('files', id); urlCache.delete(id); } }
-  draft = null;
+  const d = draft; draft = null;
+  if (d && !d.saved) { for (const id of d.newFiles) { await dbDel('files', id); urlCache.delete(id); } }
   if (window.Sync) Sync.afterDialog();
 });
 $('#evAllDay').onchange = updateTimeUI;
 $('#evStart').onchange = () => { const s = $('#evStart').value, e = $('#evEnd').value; if (s && (!e || e <= s)) { const m = Math.min(toMin(s) + 60, 23 * 60 + 59); $('#evEnd').value = pad(Math.floor(m / 60)) + ':' + pad(m % 60); } };
 $('#recFreq').onchange = updateRecUI; $('#recIv').oninput = updateRecUI; $('#recEnd').onchange = updateRecUI;
-$('#evOnlyThis').onchange = () => { $('#evDate').value = $('#evOnlyThis').checked ? draft.occDate : draft.ev.date; updateRecUI(); };
 $('#recDays').onclick = e => { const b = e.target.closest('button'); if (b) b.classList.toggle('on'); };
 $('#evFiles').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
 $('#evPhoto').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
 $('#attList').onclick = e => {
   const b = e.target.closest('[data-rm]'); if (!b) return;
-  const id = b.dataset.rm; draft.ev.attachments = draft.ev.attachments.filter(a => a.id !== id);
+  const id = b.dataset.rm; draft.atts = draft.atts.filter(a => a.id !== id);
   if (draft.newFiles.has(id)) { dbDel('files', id); draft.newFiles.delete(id); } else draft.removed.push(id);
   renderAtt();
 };
@@ -434,14 +523,38 @@ dlgEvent.addEventListener('dragleave', e => { if (e.target === dlgEvent) zone.cl
 dlgEvent.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag'); if (e.dataTransfer.files.length) addFiles([...e.dataTransfer.files]); });
 $('#evNotes').addEventListener('paste', e => { const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); addFiles(fs); } });
 $$('[data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
-$('#btnDel').onclick = async () => {
-  const base = events.find(e => e.id === draft.ev.id);
-  if (hasRec(base)) { $('#delZone').hidden = true; $('#delChoice').hidden = false; return; }
-  if (!confirm('Supprimer cette entrée et ses pièces jointes ?')) return;
-  draft.saved = true; await deleteEvent(base.id); dlgEvent.close(); render();
+/* Dupliquer : copie titre, catégorie, horaires — sans notes, pièces jointes ni avancement */
+$('#btnDup').onclick = async () => {
+  const fl = readFields();
+  for (const id of draft.newFiles) { await dbDel('files', id); urlCache.delete(id); }
+  openEditor(null, null, { title: fl.title, catId: fl.catId, date: fl.date, start: fl.allDay ? '' : fl.start, end: fl.allDay ? '' : fl.end }, true);
+  toast('Copie : choisissez la date puis enregistrez.');
+  setTimeout(() => $('#evDate').focus(), 60);
 };
-$('#delOcc').onclick = async () => { const base = events.find(e => e.id === draft.ev.id); base.exceptions = [...new Set([...(base.exceptions || []), draft.occDate])]; draft.saved = true; await saveEvent(base); dlgEvent.close(); render(); };
-$('#delSeries').onclick = async () => { if (!confirm('Supprimer toute la série ?')) return; draft.saved = true; await deleteEvent(draft.ev.id); dlgEvent.close(); render(); };
+$('#btnDel').onclick = async () => {
+  const base = draft.base, occ = draft.occDate;
+  let scope = 'all';
+  if (hasRec(base)) { scope = await askScope('Supprimer :', true); if (!scope) return; }
+  else if (!confirm('Supprimer cette entrée et ses pièces jointes ?')) return;
+  draft.saved = true;
+  const ids = allAtts(base).map(a => a.id);
+  if (scope === 'all' || (scope === 'following' && occ === base.date)) await deleteEvent(base.id);
+  else {
+    const b = structuredClone(base);
+    if (scope === 'one') { b.exceptions = [...new Set([...(b.exceptions || []), occ])]; setOcc(b, occ, { notes: '', attachments: [], done: false, progress: 0 }); }
+    else { b.rec = { ...b.rec, until: shiftDate(occ, -1), count: null }; b.occ = Object.fromEntries(Object.entries(b.occ || {}).filter(([k]) => k < occ)); b.exceptions = (b.exceptions || []).filter(x => x < occ); }
+    await saveEvent(b); await gcFiles(ids);
+  }
+  dlgEvent.close(); render();
+};
+/* Case « fait » cochable directement depuis le calendrier */
+async function toggleDone(id, date) {
+  const ev = events.find(e => e.id === id); if (!ev) return;
+  const b = structuredClone(ev), d = occData(b, date);
+  const done = !d.done;
+  setOcc(b, date, { ...d, attachments: [...d.attachments], done, progress: done ? 100 : (d.progress === 100 ? 0 : d.progress) });
+  await saveEvent(b); render();
+}
 
 /* Voix : dictée (reconnaissance du navigateur) et mémo vocal (100 % local) */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -515,17 +628,30 @@ $('#catAdd').onclick = async () => {
 };
 $('#catList').onchange = e => { const id = e.target.dataset.cat; if (id === undefined) return; e.target.checked ? hidden.delete(id) : hidden.add(id); render(); };
 
+/* ---------------- Thème clair / sombre (propre à chaque appareil) ---------------- */
+const getTheme = () => { try { return localStorage.getItem('journal.theme') || 'auto'; } catch (e) { return 'auto'; } };
+const isDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+function applyTheme(t) {
+  try { localStorage.setItem('journal.theme', t); } catch (e) {}
+  if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  $('meta[name=theme-color]').content = isDark() ? '#1c1a18' : '#b5562f';
+  $('#btnTheme').textContent = isDark() ? '☀ Fond clair' : '🌙 Fond sombre';
+}
+$('#btnTheme').onclick = () => applyTheme(isDark() ? 'light' : 'dark');
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme(getTheme()));
+applyTheme(getTheme());
+
 /* ---------------- Réglages ---------------- */
 $('#btnSettings').onclick = () => {
   $('#setStart').innerHTML = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${pad(h)}:00</option>`).join('');
   $('#setEnd').innerHTML = Array.from({ length: 24 }, (_, h) => `<option value="${h + 1}">${pad(h + 1)}:00</option>`).join('');
-  $('#setStart').value = settings.dayStart; $('#setEnd').value = settings.dayEnd; $('#setWeek').value = settings.weekStart;
+  $('#setStart').value = settings.dayStart; $('#setEnd').value = settings.dayEnd; $('#setWeek').value = settings.weekStart; $('#setTheme').value = getTheme();
   $('#dlgSettings').showModal();
 };
 $('#setSave').onclick = async () => {
   const a = +$('#setStart').value, b = +$('#setEnd').value;
   if (b <= a) { toast('La fin doit être après le début.'); return; }
-  settings.dayStart = a; settings.dayEnd = b; settings.weekStart = +$('#setWeek').value;
+  settings.dayStart = a; settings.dayEnd = b; settings.weekStart = +$('#setWeek').value; applyTheme($('#setTheme').value);
   await saveSettings(); $('#dlgSettings').close(); render();
 };
 
@@ -534,8 +660,14 @@ $('#search').addEventListener('input', () => {
   query = $('#search').value.trim(); render();
   const box = $('#results');
   if (!query) { box.hidden = true; return; }
-  const res = live().filter(e => matches(e, query)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 60);
-  box.innerHTML = res.length ? res.map(e => `<button data-go="${e.date}" data-open="${e.id}"><b>${esc(dTitle(e))}</b><small>${fDMY.format(parse(e.date))}${hasRec(e) ? ' · ↻' : ''} · ${esc(catOf(e.catId).name)}</small></button>`).join('') : '<p class="hint" style="padding:8px">Aucun résultat.</p>';
+  const res = [];
+  for (const e of live()) {
+    if (!hasRec(e)) { if (matches(e, query)) res.push({ e, d: e.date }); continue; }
+    const ds = [...new Set([e.date, ...Object.keys(e.occ || {})])].filter(d => !(e.exceptions || []).includes(d) && matches(e, query, d));
+    ds.forEach(d => res.push({ e, d }));
+  }
+  res.sort((a, b) => b.d.localeCompare(a.d)); res.length = Math.min(res.length, 60);
+  box.innerHTML = res.length ? res.map(({ e, d }) => `<button data-go="${d}" data-open="${e.id}"><b>${esc(dTitle(e, d))}</b><small>${fDMY.format(parse(d))}${hasRec(e) ? ' · ↻' : ''} · ${esc(catOf(e.catId).name)}</small></button>`).join('') : '<p class="hint" style="padding:8px">Aucun résultat.</p>';
   box.hidden = false;
 });
 $('#search').addEventListener('blur', () => setTimeout(() => $('#results').hidden = true, 200));
@@ -548,7 +680,7 @@ function b64ToBlob(d, type) { const bin = atob(d), u = new Uint8Array(bin.length
 function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
 $('#btnExport').onclick = async () => {
   toast('Préparation de la sauvegarde…');
-  const needed = new Set(live().flatMap(e => (e.attachments || []).map(a => a.id)));
+  const needed = new Set(live().flatMap(e => allAtts(e).map(a => a.id)));
   const files = [], missing = [];
   for (const id of needed) {
     let r = await dbGet('files', id);
@@ -611,15 +743,16 @@ function openPrint() {
 function headerHtml(o, sub) { return `<header class="p-head">${o.title ? `<div class="p-ttl">${esc(o.title)}</div>` : ''}<div class="p-sub">${esc(sub)}</div></header>`; }
 const headH = o => (o.title ? 12 : 7) * (o.font / 10) + 4;
 function pColor(o, c) { return o.color ? c.color : '#777'; }
+const pDone = od => `<span class="p-chk">${od.done ? '☑' : '☐'}</span>`;
 function entriesHtml(list, o) {
   return list.map(x => {
-    const ev = x.ev, c = catOf(ev.catId);
-    const imgs = o.images ? (ev.attachments || []).filter(a => /^image\//.test(a.type) && urlCache.get(a.id)) : [];
-    const others = o.attach ? (ev.attachments || []).filter(a => !(o.images && /^image\//.test(a.type) && urlCache.get(a.id))) : [];
-    const title = o.notes ? ev.title : dTitle(ev);
+    const ev = x.ev, c = catOf(ev.catId), od = occData(ev, x.date);
+    const imgs = o.images ? od.attachments.filter(a => /^image\//.test(a.type) && urlCache.get(a.id)) : [];
+    const others = o.attach ? od.attachments.filter(a => !(o.images && /^image\//.test(a.type) && urlCache.get(a.id))) : [];
+    const title = o.notes ? ev.title : dTitle(ev, x.date);
     return `<article class="p-entry" style="--c:${pColor(o, c)}"><div class="p-time">${isTimed(ev) ? esc(ev.start) + (ev.end ? '<br>' + esc(ev.end) : '') : ''}</div><div class="p-body">
-      <div class="p-title"><span class="p-cat">${esc(c.name)}</span>${esc(title || '')}</div>
-      ${o.notes && ev.notes ? `<div class="p-notes">${esc(ev.notes)}</div>` : ''}
+      <div class="p-title">${pDone(od)}<span class="p-cat">${esc(c.name)}</span>${esc(title || '')}${!od.done && od.progress ? ` <span class="p-prog">${od.progress} %</span>` : ''}</div>
+      ${o.notes && od.notes ? `<div class="p-notes">${esc(od.notes)}</div>` : ''}
       ${imgs.length ? `<div class="p-imgs">${imgs.map(a => `<img src="${urlCache.get(a.id)}" style="max-height:${o.imgSize}mm">`).join('')}</div>` : ''}
       ${others.length ? `<div class="p-att">📎 ${others.map(a => esc(a.name)).join(' · ')}</div>` : ''}</div></article>`;
   }).join('');
@@ -631,7 +764,7 @@ function gridHtml(days, occ, o, gridH, adH, withNotes) {
   days.forEach(d => s += `<div class="pg-dh">${days.length > 1 ? cap(fDay.format(parse(d))) : ''}</div>`);
   if (adH) {
     s += `<div class="pg-gl">jour</div>`;
-    days.forEach(d => s += `<div class="pg-ad" style="height:${adH}mm">${occ.filter(x => x.date === d && !isTimed(x.ev)).map(x => `<div class="pg-chip" style="--c:${pColor(o, catOf(x.ev.catId))}">${esc(dTitle(x.ev))}</div>`).join('')}</div>`);
+    days.forEach(d => s += `<div class="pg-ad" style="height:${adH}mm">${occ.filter(x => x.date === d && !isTimed(x.ev)).map(x => `<div class="pg-chip" style="--c:${pColor(o, catOf(x.ev.catId))}">${pDone(occData(x.ev, x.date))} ${esc(dTitle(x.ev, x.date))}</div>`).join('')}</div>`);
   }
   s += `<div class="pg-gut" style="height:${gridH}mm">`;
   for (let h = o.h1; h < o.h2; h++) s += `<div style="position:absolute;top:${(h - o.h1) * hh}mm;right:0">${pad(h)}h</div>`;
@@ -643,8 +776,8 @@ function gridHtml(days, occ, o, gridH, adH, withNotes) {
     for (const it of items) {
       let top = (it.s - o.h1 * 60) / 60 * hh, bot = (it.e - o.h1 * 60) / 60 * hh;
       top = Math.min(Math.max(0, top), gridH - 4); bot = Math.min(Math.max(bot, top + 4), gridH);
-      const ev = it.x.ev;
-      s += `<div class="pg-ev" style="top:${top}mm;height:${bot - top}mm;left:${it.col / it.n * 100}%;width:${100 / it.n}%;--c:${pColor(o, catOf(ev.catId))}"><b>${esc(ev.start)}</b> ${esc(dTitle(ev))}${withNotes && ev.notes && ev.title ? `<div class="pg-n">${esc(ev.notes)}</div>` : ''}</div>`;
+      const ev = it.x.ev, od = occData(ev, it.x.date);
+      s += `<div class="pg-ev" style="top:${top}mm;height:${bot - top}mm;left:${it.col / it.n * 100}%;width:${100 / it.n}%;--c:${pColor(o, catOf(ev.catId))}">${pDone(od)} <b>${esc(ev.start)}</b> ${esc(dTitle(ev, it.x.date))}${!od.done && od.progress ? ` (${od.progress} %)` : ''}${withNotes && od.notes && ev.title ? `<div class="pg-n">${esc(od.notes)}</div>` : ''}</div>`;
     }
     s += `</div>`;
   }
@@ -653,7 +786,7 @@ function gridHtml(days, occ, o, gridH, adH, withNotes) {
 async function buildPrint(o) {
   const dims = pageDims(o);
   const occ = occurrences(o.from, o.to, { cats: new Set(o.cats) });
-  if (o.images) for (const x of occ) for (const a of x.ev.attachments || []) if (/^image\//.test(a.type)) await fileUrl(a.id);
+  if (o.images) for (const x of occ) for (const a of occData(x.ev, x.date).attachments) if (/^image\//.test(a.type)) await fileUrl(a.id);
   const pages = [];
   const page = (inner, fixed) => `<section class="p-page ${fixed ? 'p-fixed' : ''}">${inner}</section>`;
   const days = enumDays(o.from, o.to);
@@ -700,7 +833,7 @@ async function buildPrint(o) {
         for (let k = 0; k < 7; k++) {
           const d = addDays(s0, w * 7 + k), key = ymd(d);
           const list = mocc.filter(x => x.date === key);
-          t += `<td class="${d.getMonth() !== m.getMonth() ? 'out' : ''}" style="height:${rowH}mm"><div style="height:${rowH - 1.6}mm"><span class="n">${d.getDate()}</span>${list.map(x => `<div class="pm-e ${o.notes ? 'wrap' : ''}" style="--c:${pColor(o, catOf(x.ev.catId))}">${isTimed(x.ev) ? esc(x.ev.start) + ' ' : ''}${esc(dTitle(x.ev))}</div>`).join('')}</div></td>`;
+          t += `<td class="${d.getMonth() !== m.getMonth() ? 'out' : ''}" style="height:${rowH}mm"><div style="height:${rowH - 1.6}mm"><span class="n">${d.getDate()}</span>${list.map(x => `<div class="pm-e ${o.notes ? 'wrap' : ''}" style="--c:${pColor(o, catOf(x.ev.catId))}">${pDone(occData(x.ev, x.date))} ${isTimed(x.ev) ? esc(x.ev.start) + ' ' : ''}${esc(dTitle(x.ev, x.date))}</div>`).join('')}</div></td>`;
         }
         t += '</tr>';
       }
@@ -743,6 +876,8 @@ window.addEventListener('afterprint', () => { $('#print-area').innerHTML = ''; }
 /* ---------------- Interactions ---------------- */
 $('#main').addEventListener('click', e => {
   const t = e.target;
+  const tg = t.closest('[data-toggle]');
+  if (tg) { e.stopPropagation(); toggleDone(tg.dataset.toggle, tg.dataset.date); return; }
   const evEl = t.closest('[data-id]');
   if (evEl) { openEditor(evEl.dataset.id, evEl.dataset.date); return; }
   const day = t.closest('[data-day]');
@@ -809,7 +944,7 @@ async function init() {
 /* API utilisée par sync.js */
 window.Journal = {
   get db() { return db; }, dbAll, dbGet, dbPut, dbDel, metaGet, metaSet, loadAll, render, toast,
-  get events() { return events; }, get cats() { return cats; }, get settings() { return settings; },
+  get events() { return events; }, allAtts, get cats() { return cats; }, get settings() { return settings; },
   set settings(v) { settings = v; }, isEditing: () => !!document.querySelector('dialog[open]'), fileUrl
 };
 document.addEventListener('DOMContentLoaded', init);

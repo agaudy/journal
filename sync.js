@@ -139,7 +139,7 @@ window.Sync = (() => {
         if (dataId) await update(dataId, blob); else remote.set(DATA_NAME, await create(DATA_NAME, blob));
       }
       // Pièces jointes : envoi de celles qui ne sont pas encore en ligne
-      const used = new Set(mE.filter(e => !e.deleted).flatMap(e => (e.attachments || []).map(a => a.id)));
+      const used = new Set(mE.filter(e => !e.deleted).flatMap(e => J().allAtts(e).map(a => a.id)));
       for (const f of await J().dbAll('files')) {
         if (f.synced || !used.has(f.id)) continue;
         const name = `f_${f.id}.bin`;
@@ -174,7 +174,7 @@ window.Sync = (() => {
     if (!ready() || !navigator.onLine || !tokenOk()) return null;
     if (!remote.has(`f_${id}.bin`)) await listRemote();
     const rid = remote.get(`f_${id}.bin`); if (!rid) return null;
-    const att = J().events.flatMap(e => e.attachments || []).find(a => a.id === id);
+    const att = J().events.flatMap(e => J().allAtts(e)).find(a => a.id === id);
     return new Blob([await dec(key, await download(rid))], { type: att?.type || 'application/octet-stream' });
   }
 

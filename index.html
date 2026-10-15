@@ -5,12 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Mon Journal</title>
 <meta name="theme-color" content="#b5562f">
+<script>try{var t=localStorage.getItem("journal.theme");if(t&&t!=="auto")document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
 :root{--bg:#f6f2eb;--panel:#fffdf9;--ink:#2b2622;--muted:#8a8178;--line:#e6dfd4;--accent:#b5562f;--hover:#f0ebe2;--now:#d9472b;--shadow:0 12px 40px rgba(40,30,20,.18)}
-@media (prefers-color-scheme:dark){:root{--bg:#1c1a18;--panel:#252220;--ink:#ece6dd;--muted:#9a9187;--line:#3a3530;--accent:#e07a50;--hover:#2f2b27;--shadow:0 12px 40px rgba(0,0,0,.5)}}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1c1a18;--panel:#252220;--ink:#ece6dd;--muted:#9a9187;--line:#3a3530;--accent:#e07a50;--hover:#2f2b27;--shadow:0 12px 40px rgba(0,0,0,.5);color-scheme:dark}}
+:root[data-theme=dark]{--bg:#1c1a18;--panel:#252220;--ink:#ece6dd;--muted:#9a9187;--line:#3a3530;--accent:#e07a50;--hover:#2f2b27;--shadow:0 12px 40px rgba(0,0,0,.5);color-scheme:dark}
+:root[data-theme=light]{color-scheme:light}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{margin:0;height:100%}
@@ -155,7 +158,8 @@ legend{font-size:12px;color:var(--muted);padding:0 4px}
 .cat-edit input[type=color]{width:38px;height:34px;padding:2px}
 .cat-edit input[type=text]{flex:1}
 .warnbox{background:#fff4e5;color:#7a4b0d;border-radius:8px;padding:10px 12px;font-size:13px}
-@media (prefers-color-scheme:dark){.warnbox{background:#3b2c18;color:#f2c98d}}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .warnbox{background:#3b2c18;color:#f2c98d}}
+:root[data-theme=dark] .warnbox{background:#3b2c18;color:#f2c98d}
 /* print dialog */
 dialog.wide{width:min(1240px,98vw);height:94vh}
 .print-wrap{display:grid;grid-template-columns:330px 1fr;height:100%}
@@ -166,7 +170,8 @@ dialog.wide{width:min(1240px,98vw);height:94vh}
 .toast.on{opacity:1}
 .syncbar{display:none;background:#fff4e5;color:#7a4b0d;padding:8px 14px;font-size:13px;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
 .syncbar.on{display:flex}
-@media (prefers-color-scheme:dark){.syncbar{background:#3b2c18;color:#f2c98d}}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .syncbar{background:#3b2c18;color:#f2c98d}}
+:root[data-theme=dark] .syncbar{background:#3b2c18;color:#f2c98d}
 /* ---------- PRINT CONTENT (shared preview + print) ---------- */
 .p-root{color:#1d1a17;font-family:Georgia,"Times New Roman",serif;line-height:1.35;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .p-root.sans{font-family:system-ui,"Segoe UI",Roboto,Arial,sans-serif}
@@ -210,6 +215,29 @@ dialog.wide{width:min(1240px,98vw);height:94vh}
 .pm td.out{background:#f3f0eb;color:#999}
 .pm-e{font-size:.75em;line-height:1.2;border-left:.7mm solid var(--c);padding-left:.8mm;margin-top:.5mm;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .pm-e.wrap{white-space:normal}
+/* fait / avancement */
+.done-box{display:inline-grid;place-items:center;width:15px;height:15px;border:1.5px solid var(--c,var(--muted));border-radius:4px;font-size:11px;line-height:1;cursor:pointer;flex-shrink:0;background:var(--panel);color:#fff;vertical-align:-2px;margin-right:4px}
+.done-box:hover{box-shadow:0 0 0 3px color-mix(in srgb,var(--c,var(--accent)) 25%,transparent)}
+.done-box.on{background:var(--c,var(--accent));border-color:var(--c,var(--accent))}
+.ev .done-box{position:absolute;right:3px;top:3px;margin:0}
+.ev{padding-right:22px}
+[data-done] .ev-ti,[data-done] .chip-t,[data-done].card .ti{text-decoration:line-through;opacity:.6}
+[data-done].ev,[data-done].chip{opacity:.75}
+.done-lbl{color:#3d8a4a;font-weight:600}
+.pbar{position:absolute;left:0;right:0;bottom:0;height:3px;background:color-mix(in srgb,var(--c) 20%,transparent)}
+.pbar i{display:block;height:100%;background:var(--c)}
+.gauge{height:6px;border-radius:3px;background:var(--hover);margin:6px 0 4px;overflow:hidden}
+.gauge i{display:block;height:100%;background:var(--c);border-radius:3px}
+.chip{display:flex;align-items:center;gap:0}
+.chip-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.chip .done-box{width:13px;height:13px;font-size:9px}
+.progrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.progrow input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
+#evProgVal{min-width:44px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.scope{border:1px solid var(--accent);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--accent) 7%,var(--panel))}
+.scope b{font-size:14px}
+.p-chk{font-family:"DejaVu Sans","Segoe UI Symbol",sans-serif;margin-right:1.2mm}
+.p-prog{font-weight:400;color:#555;font-size:.85em}
 #print-area{display:none}
 @media print{
   body{display:block;overflow:visible;background:#fff}
@@ -260,6 +288,7 @@ dialog.wide{width:min(1240px,98vw);height:94vh}
     <div id="catList"></div>
     <div class="side-h"><span>Outils</span></div>
     <button id="btnSyncDlg" class="btn block">☁ Synchronisation</button>
+    <button id="btnTheme" class="btn block">🌙 Fond sombre</button>
     <button id="btnSettings" class="btn block">⚙ Réglages</button>
     <button id="btnExport" class="btn block">⬇ Sauvegarde (export)</button>
     <button id="btnImport" class="btn block">⬆ Restaurer une sauvegarde</button>
@@ -277,7 +306,6 @@ dialog.wide{width:min(1240px,98vw);height:94vh}
   <div class="dlg-h"><input id="evTitle" class="title-input" placeholder="Titre (facultatif)"><button type="button" class="icon-btn" data-close title="Fermer">✕</button></div>
   <div id="occBanner" class="banner" hidden>
     <span id="occText"></span>
-    <label class="chk"><input type="checkbox" id="evOnlyThis"> Modifier seulement cette occurrence</label>
   </div>
   <div class="grid2">
     <label class="f">Date<input type="date" id="evDate" required></label>
@@ -299,6 +327,10 @@ dialog.wide{width:min(1240px,98vw);height:94vh}
       <input type="date" id="recUntil"><span id="recCountWrap" class="row"><input type="number" id="recCount" min="1" value="10"> fois</span>
     </div>
   </fieldset>
+  <div class="progrow">
+    <label class="chk"><input type="checkbox" id="evDone"> <b>Fait</b></label>
+    <span class="hint">Avancement</span><input type="range" id="evProg" min="0" max="100" step="5" value="0"><span id="evProgVal">0 %</span>
+  </div>
   <div>
     <div class="notes-h"><span>Notes</span><button type="button" id="btnDictate" class="mini-btn" title="Dictée vocale : la reconnaissance est faite par le navigateur (Google ou Apple).">🎤 Dicter</button></div>
     <textarea id="evNotes" rows="8" placeholder="Écrivez ici…"></textarea>
@@ -308,9 +340,16 @@ dialog.wide{width:min(1240px,98vw);height:94vh}
       <span class="row" style="gap:6px"><label class="mini-btn">📎 Ajouter<input type="file" id="evFiles" multiple hidden></label><label class="mini-btn">📷 Photo<input type="file" id="evPhoto" accept="image/*" capture="environment" hidden></label><button type="button" id="btnMemo" class="mini-btn" title="Enregistrement audio stocké uniquement chez vous">🔴 Mémo vocal</button></span></div>
     <div id="attList" class="att-list"></div>
   </div>
-  <div class="dlg-f">
+  <div class="scope" id="scopeBox" hidden>
+    <b id="scopeTitle"></b>
+    <label class="chk" id="scopeOneRow"><input type="radio" name="scope" value="one"> Cette occurrence uniquement</label>
+    <label class="chk"><input type="radio" name="scope" value="following"> Cette occurrence et les suivantes</label>
+    <label class="chk"><input type="radio" name="scope" value="all"> Toutes les occurrences</label>
+    <div class="row"><span class="sp"></span><button type="button" class="btn" id="scopeCancel">Annuler</button><button type="button" class="btn primary" id="scopeOk">OK</button></div>
+  </div>
+  <div class="dlg-f" id="mainFoot">
     <span id="delZone"><button type="button" id="btnDel" class="btn danger">Supprimer</button></span>
-    <span id="delChoice" hidden class="row"><button type="button" id="delOcc" class="btn danger">Cette occurrence</button><button type="button" id="delSeries" class="btn danger">Toute la série</button></span>
+    <button type="button" id="btnDup" class="btn" title="Copie sans les notes ni les pièces jointes">⧉ Dupliquer</button>
     <span class="sp"></span>
     <button type="button" class="btn" data-close>Annuler</button>
     <button type="submit" class="btn primary">Enregistrer</button>
@@ -332,6 +371,7 @@ dialog.wide{width:min(1240px,98vw);height:94vh}
     <label class="f">Début de journée affiché<select id="setStart"></select></label>
     <label class="f">Fin de journée affichée<select id="setEnd"></select></label>
   </div>
+  <label class="f">Apparence<select id="setTheme"><option value="auto">Automatique (comme l'appareil)</option><option value="light">Fond clair</option><option value="dark">Fond sombre</option></select></label>
   <label class="f">Premier jour de la semaine<select id="setWeek"><option value="1">Lundi</option><option value="0">Dimanche</option></select></label>
   <p class="hint">Les entrées en dehors de ces heures restent visibles, collées en haut ou en bas de la grille.</p>
   <div class="dlg-f"><span class="sp"></span><button class="btn primary" id="setSave">Enregistrer</button></div>
