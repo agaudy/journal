@@ -244,7 +244,7 @@ function evBlock(o, top, hgt, it, showNotes) {
   const ev = o.ev, c = catOf(ev.catId), od = occData(ev, o.date);
   const icons = (hasRec(ev) ? ' ↻' : '') + (od.attachments.length ? ' 📎' : '') + (!od.done && od.progress ? ` · ${od.progress} %` : '');
   return `<div class="ev" data-id="${ev.id}" data-date="${o.date}" ${od.done ? 'data-done' : ''} style="top:${top}px;height:${hgt}px;left:calc(${it.col / it.n * 100}% + 2px);width:calc(${100 / it.n}% - 4px);--c:${c.color}" title="${esc(dTitle(ev, o.date))}">${doneBox(o, od)}
-    ${hgt < 34 ? `<div class="ev-ti" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="ev-t">${esc(ev.start)}</span> ${esc(dTitle(ev, o.date))}${icons}</div>` : `<div class="ev-t">${esc(ev.start)}${ev.end ? '–' + esc(ev.end) : ''}${icons}</div><div class="ev-ti">${esc(dTitle(ev, o.date))}</div>${showNotes && od.notes && ev.title ? `<div class="ev-n">${esc(od.notes)}</div>` : ''}`}${progBar(od)}</div>`;
+    ${hgt < 34 ? `<div class="ev-ti" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="ev-t">${esc(ev.start)}</span> ${esc(dTitle(ev, o.date))}${icons}</div>` : `<div class="ev-t">${esc(ev.start)}${ev.end ? '–' + esc(ev.end) : ''}${icons}</div><div class="ev-ti">${esc(dTitle(ev, o.date))}</div>${showNotes && od.notes && ev.title ? `<div class="ev-n">${esc(od.notes)}</div>` : ''}`}${progBar(od)}<div class="ev-rs" title="Tirer pour changer la durée"></div></div>`;
 }
 function renderTimeGrid() {
   const isDay = view === 'day';
@@ -263,7 +263,7 @@ function renderTimeGrid() {
   for (const d of days) {
     const s = ymd(d);
     const items = layout(occ.filter(o => o.date === s && isTimed(o.ev)).map(o => { const [a, b] = span(o.ev); return { o, s: a, e: b }; }));
-    g += `<div class="tg-col ${s === tstr ? 'is-today' : ''}" style="height:${H}px">`;
+    g += `<div class="tg-col ${s === tstr ? 'is-today' : ''}" data-col="${s}" style="height:${H}px">`;
     for (let h = h1; h < h2; h++) g += `<div class="tg-slot" data-new="${s}" data-h="${h}" style="height:${HOUR}px"></div>`;
     for (const it of items) {
       let top = (it.s - h1 * 60) / 60 * HOUR, bot = (it.e - h1 * 60) / 60 * HOUR;
@@ -436,6 +436,48 @@ function readOcc() {
   const done = $('#evDone').checked;
   return { notes: $('#evNotes').value, attachments: draft.atts, done, progress: done ? 100 : +$('#evProg').value || 0 };
 }
+/* Applique une modification (champs fl + données d'occurrence od) à une entrée, selon la portée choisie */
+function applyChange(base, occ, fl, od, scope) {
+  const toSave = [];
+  if (!hasRec(base)) {
+    const b = structuredClone(base); Object.assign(b, fl);
+    for (const k of OCC_KEYS) delete b[k];
+    setOcc(b, b.date, od); return [b];
+  }
+  const delta = daysBetween(occ, fl.date);
+  const shiftDays = (rec, ref) => { if (delta && rec.freq === 'weekly' && rec.days?.length && recNorm(rec) === recNorm(ref)) rec.days = rec.days.map(d => ((d + delta) % 7 + 7) % 7); return rec; };
+  if (scope === 'occ') {
+    const b = structuredClone(base); setOcc(b, occ, od); toSave.push(b);
+  } else if (scope === 'one') {
+    const b = structuredClone(base);
+    b.exceptions = [...new Set([...(b.exceptions || []), occ])];
+    setOcc(b, occ, { notes: '', attachments: [], done: false, progress: 0 });
+    const single = { ...fl, id: uid(), rec: NOREC(), exceptions: [], seriesId: base.id };
+    setOcc(single, single.date, od);
+    toSave.push(b, single);
+  } else if (scope === 'all' || occ === base.date) {
+    const b = structuredClone(base);
+    Object.assign(b, { title: fl.title, catId: fl.catId, allDay: fl.allDay, start: fl.start, end: fl.end, rec: shiftDays(structuredClone(fl.rec), base.rec) });
+    if (delta) { b.date = shiftDate(b.date, delta); b.occ = shiftKeys(b.occ, delta); b.exceptions = (b.exceptions || []).map(x => shiftDate(x, delta)); }
+    if (!hasRec(b)) { b.date = fl.date; b.exceptions = []; delete b.occ; for (const k of OCC_KEYS) delete b[k]; }
+    setOcc(b, fl.date, od);
+    toSave.push(b);
+  } else { // cette occurrence et les suivantes
+    const b = structuredClone(base), dayBefore = shiftDate(occ, -1);
+    const before = occDates({ ...base, exceptions: [] }, base.date, dayBefore).length;
+    b.rec = { ...b.rec, until: dayBefore, count: null };
+    b.occ = Object.fromEntries(Object.entries(b.occ || {}).filter(([k]) => k < occ));
+    b.exceptions = (b.exceptions || []).filter(x => x < occ);
+    const rec = shiftDays(structuredClone(fl.rec), base.rec);
+    if (rec.count && base.rec.count && rec.count === base.rec.count) rec.count = Math.max(1, base.rec.count - before);
+    const nw = { ...fl, id: uid(), rec, seriesId: base.id,
+      occ: shiftKeys(base.occ, delta, k => k >= occ), exceptions: (base.exceptions || []).filter(x => x >= occ).map(x => shiftDate(x, delta)) };
+    if (!hasRec(nw)) { delete nw.occ; nw.exceptions = []; }
+    setOcc(nw, nw.date, od);
+    toSave.push(b, nw);
+  }
+  return toSave;
+}
 $('#evForm').addEventListener('submit', async e => {
   e.preventDefault();
   if (mediaRec) { toast('Arrêtez d\'abord le mémo vocal.'); return; }
@@ -459,38 +501,7 @@ $('#evForm').addEventListener('submit', async e => {
       scope = await askScope('Appliquer ces modifications à :', !recChanged);
       if (!scope) return;
     }
-    const delta = daysBetween(occ, fl.date);
-    const shiftDays = (rec, ref) => { if (delta && rec.freq === 'weekly' && rec.days?.length && recNorm(rec) === recNorm(ref)) rec.days = rec.days.map(d => ((d + delta) % 7 + 7) % 7); return rec; };
-    if (scope === 'occ') {
-      const b = structuredClone(base); setOcc(b, occ, od); toSave.push(b);
-    } else if (scope === 'one') {
-      const b = structuredClone(base);
-      b.exceptions = [...new Set([...(b.exceptions || []), occ])];
-      setOcc(b, occ, { notes: '', attachments: [], done: false, progress: 0 });
-      const single = { ...fl, id: uid(), rec: NOREC(), exceptions: [], seriesId: base.id };
-      setOcc(single, single.date, od);
-      toSave.push(b, single);
-    } else if (scope === 'all' || occ === base.date) {
-      const b = structuredClone(base);
-      Object.assign(b, { title: fl.title, catId: fl.catId, allDay: fl.allDay, start: fl.start, end: fl.end, rec: shiftDays(structuredClone(fl.rec), base.rec) });
-      if (delta) { b.date = shiftDate(b.date, delta); b.occ = shiftKeys(b.occ, delta); b.exceptions = (b.exceptions || []).map(x => shiftDate(x, delta)); }
-      if (!hasRec(b)) { b.date = fl.date; b.exceptions = []; delete b.occ; for (const k of OCC_KEYS) delete b[k]; }
-      setOcc(b, fl.date, od);
-      toSave.push(b);
-    } else { // cette occurrence et les suivantes
-      const b = structuredClone(base), dayBefore = shiftDate(occ, -1);
-      const before = occDates({ ...base, exceptions: [] }, base.date, dayBefore).length;
-      b.rec = { ...b.rec, until: dayBefore, count: null };
-      b.occ = Object.fromEntries(Object.entries(b.occ || {}).filter(([k]) => k < occ));
-      b.exceptions = (b.exceptions || []).filter(x => x < occ);
-      const rec = shiftDays(structuredClone(fl.rec), base.rec);
-      if (rec.count && base.rec.count && rec.count === base.rec.count) rec.count = Math.max(1, base.rec.count - before);
-      const nw = { ...fl, id: uid(), rec, seriesId: base.id,
-        occ: shiftKeys(base.occ, delta, k => k >= occ), exceptions: (base.exceptions || []).filter(x => x >= occ).map(x => shiftDate(x, delta)) };
-      if (!hasRec(nw)) { delete nw.occ; nw.exceptions = []; }
-      setOcc(nw, nw.date, od);
-      toSave.push(b, nw);
-    }
+    toSave.push(...applyChange(base, occ, fl, od, scope));
   }
   for (const ev of toSave) await saveEvent(ev);
   lastCat = fl.catId;
@@ -873,6 +884,109 @@ $('#pGo').onclick = async () => {
 };
 window.addEventListener('afterprint', () => { $('#print-area').innerHTML = ''; });
 
+/* ---------------- Glisser-déposer (souris, et appui long au doigt) ---------------- */
+let drag = null, lastDragEnd = 0, suppressClick = false;
+const toTime = m => m >= 1440 ? '23:59' : pad(Math.floor(m / 60)) + ':' + pad(m % 60);
+const snap15 = m => Math.round(m / 15) * 15;
+function askScopeDlg(title) {
+  return new Promise(res => {
+    const d = $('#dlgScope');
+    $('#dScopeTitle').textContent = title;
+    $$('#dlgScope input[name=dscope]').forEach(i => i.checked = i.value === 'one');
+    let val = null;
+    $('#dScopeOk').onclick = () => { val = $('#dlgScope input[name=dscope]:checked').value; d.close(); };
+    $('#dScopeCancel').onclick = () => d.close();
+    d.onclose = () => res(val);
+    d.showModal();
+  });
+}
+function colAt(x) { for (const c of $$('.tg-col')) { const r = c.getBoundingClientRect(); if (x >= r.left && x < r.right) return c; } return null; }
+function startDrag() {
+  const d = drag; if (!d) return;
+  d.active = true; d.el.classList.add('dragging'); document.body.classList.add('is-dragging');
+  if (d.touch) navigator.vibrate?.(25);
+  if (d.mode === 'day') {
+    d.ghost = d.el.cloneNode(true); d.ghost.className = 'chip drag-ghost'; d.ghost.style.cssText = d.el.style.cssText + `;width:${d.el.offsetWidth}px`;
+    document.body.appendChild(d.ghost);
+  } else {
+    const [s, e] = span(d.ev); d.s = s; d.e = e; d.dur = e - s; d.ns = s; d.ne = e; d.nd = d.occ;
+    const col = d.el.closest('.tg-col'), r = col.getBoundingClientRect();
+    d.off = snap15((d.y0 - r.top) / HOUR * 60 + settings.dayStart * 60) - s;
+    d.ghost = document.createElement('div'); d.ghost.className = 'ev drag-ghost'; d.ghost.style.cssText = `--c:${catOf(d.ev.catId).color};left:2px;right:2px`;
+    col.appendChild(d.ghost);
+  }
+  moveDrag(d.x0, d.y0);
+}
+function moveDrag(x, y) {
+  const d = drag, main = $('#main'), mr = main.getBoundingClientRect();
+  if (y < mr.top + 40) main.scrollTop -= 12; else if (y > mr.bottom - 40) main.scrollTop += 12;
+  if (d.mode === 'day') {
+    d.ghost.style.left = (x - 20) + 'px'; d.ghost.style.top = (y - 12) + 'px';
+    $$('.drop-on').forEach(n => n.classList.remove('drop-on'));
+    const t = document.elementFromPoint(x, y)?.closest('.tg-ad[data-new], .mc[data-new]');
+    d.nd = t ? t.dataset.new : null; if (t) t.classList.add('drop-on');
+    return;
+  }
+  const col = colAt(x) || d.ghost.parentNode, r = col.getBoundingClientRect();
+  const h1 = settings.dayStart * 60, m = (y - r.top) / HOUR * 60 + h1;
+  if (d.mode === 'resize') { d.ne = Math.min(1440, Math.max(d.s + 15, snap15(m))); d.ns = d.s; }
+  else { d.ns = Math.min(1440 - d.dur, Math.max(0, snap15(m) - d.off)); d.ne = d.ns + d.dur; d.nd = col.dataset.col; }
+  if (d.ghost.parentNode !== col) col.appendChild(d.ghost);
+  const top = (d.ns - h1) / 60 * HOUR, hgt = Math.max(18, (d.ne - d.ns) / 60 * HOUR - 1);
+  d.ghost.style.top = top + 'px'; d.ghost.style.height = hgt + 'px';
+  const dd = d.nd !== d.occ ? ` · ${cap(fDay.format(parse(d.nd)))}` : '';
+  d.ghost.innerHTML = `<div class="ev-t">${toTime(d.ns)}–${toTime(d.ne)}${dd}</div><div class="ev-ti">${esc(dTitle(d.ev, d.occ))}</div>`;
+}
+function endDrag() {
+  const d = drag; if (!d) return;
+  clearTimeout(d.timer);
+  d.ghost?.remove(); d.el.classList.remove('dragging'); document.body.classList.remove('is-dragging');
+  $$('.drop-on').forEach(n => n.classList.remove('drop-on'));
+  drag = null;
+  return d;
+}
+async function commitDrag(d) {
+  const ev = d.ev, fl = { title: ev.title || '', date: d.occ, catId: ev.catId || '', allDay: !isTimed(ev), start: ev.start || '', end: ev.end || '', rec: structuredClone(ev.rec || NOREC()) };
+  if (d.mode === 'day') { if (!d.nd || d.nd === d.occ) return; fl.date = d.nd; }
+  else {
+    fl.date = d.nd; fl.start = toTime(d.ns); fl.end = toTime(d.ne);
+    if (fl.date === d.occ && d.ns === d.s && d.ne === d.e) return;
+  }
+  let scope = 'one';
+  if (hasRec(ev)) { scope = await askScopeDlg(d.mode === 'resize' ? 'Changer la durée de :' : 'Déplacer :'); if (!scope) { render(); return; } }
+  for (const x of applyChange(ev, d.occ, fl, occData(ev, d.occ), scope)) await saveEvent(x);
+  render();
+  const msg = d.mode === 'resize' ? `Durée : ${fl.start} – ${fl.end}` : `Déplacé au ${fDMY.format(parse(fl.date))}${isTimed(fl) ? ' à ' + fl.start : ''}`;
+  toast(msg);
+}
+$('#main').addEventListener('pointerdown', e => {
+  if (e.button !== 0 || e.target.closest('[data-toggle]') || drag) return;
+  const el = e.target.closest('.ev[data-id], .chip[data-id]'); if (!el) return;
+  const ev = events.find(x => x.id === el.dataset.id); if (!ev) return;
+  const mode = el.classList.contains('ev') ? (e.target.closest('.ev-rs') ? 'resize' : 'time') : 'day';
+  drag = { el, ev, occ: el.dataset.date, x0: e.clientX, y0: e.clientY, touch: e.pointerType !== 'mouse', active: false, mode };
+  if (drag.touch) drag.timer = setTimeout(startDrag, 400);
+});
+document.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dist = Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0);
+  if (!drag.active) {
+    if (drag.touch) { if (dist > 10) endDrag(); return; }
+    if (dist < 5) return;
+    startDrag();
+  }
+  e.preventDefault(); moveDrag(e.clientX, e.clientY);
+});
+document.addEventListener('pointerup', () => {
+  if (!drag) return;
+  const wasActive = drag.active, d = endDrag();
+  if (wasActive) { lastDragEnd = Date.now(); suppressClick = true; setTimeout(() => suppressClick = false, 0); commitDrag(d); }
+});
+document.addEventListener('pointercancel', () => { if (drag && !drag.active) endDrag(); });
+document.addEventListener('touchmove', e => { if (drag?.active) e.preventDefault(); }, { passive: false });
+$('#main').addEventListener('contextmenu', e => { if (drag) e.preventDefault(); });
+$('#main').addEventListener('click', e => { if (suppressClick) { suppressClick = false; e.stopPropagation(); e.preventDefault(); } }, true);
+
 /* ---------------- Interactions ---------------- */
 $('#main').addEventListener('click', e => {
   const t = e.target;
@@ -915,9 +1029,10 @@ let tx0 = null, ty0 = 0;
 $('#main').addEventListener('touchstart', e => { tx0 = e.touches[0].clientX; ty0 = e.touches[0].clientY; }, { passive: true });
 $('#main').addEventListener('touchend', e => {
   if (tx0 === null) return; const dx = e.changedTouches[0].clientX - tx0, dy = e.changedTouches[0].clientY - ty0; tx0 = null;
+  if (Date.now() - lastDragEnd < 400 || drag) return;
   if (Math.abs(dx) > 80 && Math.abs(dy) < 50 && view !== 'week') go(dx < 0 ? 1 : -1);
 }, { passive: true });
-setInterval(() => { if (!document.querySelector('dialog[open]')) render(); }, 5 * 60 * 1000);
+setInterval(() => { if (!document.querySelector('dialog[open]') && !drag) render(); }, 5 * 60 * 1000);
 
 /* ---------------- Démarrage ---------------- */
 async function loadAll() {
@@ -945,6 +1060,6 @@ async function init() {
 window.Journal = {
   get db() { return db; }, dbAll, dbGet, dbPut, dbDel, metaGet, metaSet, loadAll, render, toast,
   get events() { return events; }, allAtts, get cats() { return cats; }, get settings() { return settings; },
-  set settings(v) { settings = v; }, isEditing: () => !!document.querySelector('dialog[open]'), fileUrl
+  set settings(v) { settings = v; }, isEditing: () => !!document.querySelector('dialog[open]') || !!drag, fileUrl
 };
 document.addEventListener('DOMContentLoaded', init);
